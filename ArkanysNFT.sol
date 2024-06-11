@@ -16,8 +16,10 @@ contract ArkanysNFT is ERC721Enumerable, Ownable, ReentrancyGuard {
 
     string public baseURI;
     string public constant baseExtension = ".json";
-    uint256 public usdCost = 30 * 1e18; // Coût défini en USD, ajusté pour 18 décimales
-    uint256 public constant maxSupply = 10000;
+    uint256 public constant initialUsdCost = 3000 * 1e18; // Coût initial en USD
+    uint256 public constant minUsdCost = 300 * 1e18; // Coût minimum en USD
+    uint256 public startTime;
+    uint256 public constant maxSupply = 10001;
     uint256 public constant maxMintAmount = 10;
     bool public paused = false;
     bool public onlyWhitelisted = true; // Variable ajoutée
@@ -45,6 +47,7 @@ contract ArkanysNFT is ERC721Enumerable, Ownable, ReentrancyGuard {
         setBaseURI(initialBaseURI);
         priceFeed = AggregatorV3Interface(priceFeedAddress);
         signerAddress = signerAddress_;
+        startTime = block.timestamp; // Initialiser le temps de départ au moment de la création du contrat
     }
 
     function _baseURI() internal view override returns (string memory) {
@@ -55,20 +58,31 @@ contract ArkanysNFT is ERC721Enumerable, Ownable, ReentrancyGuard {
         baseURI = newBaseURI;
     }
 
-    function setUsdCost(uint256 usdCost_) public onlyOwner {
-        usdCost = usdCost_ * 1e18;
-        emit UsdCostUpdated(usdCost);
-    }
-
     function getLatestPrice() public view returns (int) {
         (, int price, , ,) = priceFeed.latestRoundData();
         return price;
     }
 
+    function getCurrentUsdCost() public view returns (uint256) {
+        uint256 elapsedTime = block.timestamp - startTime;
+        uint256 reductions = elapsedTime / (5 minutes);
+        uint256 currentUsdCost = initialUsdCost;
+
+        for (uint256 i = 0; i < reductions; i++) {
+            currentUsdCost = (currentUsdCost * 8) / 10; // Réduction de 20%
+            if (currentUsdCost <= minUsdCost) {
+                return minUsdCost;
+            }
+        }
+
+        return currentUsdCost > minUsdCost ? currentUsdCost : minUsdCost;
+    }
+
     function getCostInEth() public view returns (uint256) {
         int ethPrice = getLatestPrice();
         require(ethPrice > 0, "Invalid ETH price");
-        return (usdCost * 1e8) / uint256(ethPrice); // Chainlink retourne le prix avec 8 décimales
+        uint256 currentUsdCost = getCurrentUsdCost();
+        return (currentUsdCost * 1e8) / uint256(ethPrice); // Chainlink retourne le prix avec 8 décimales
     }
 
     function verifySignature(address user, bytes memory signature) public view returns (bool) {
